@@ -4,7 +4,7 @@ import { Octokit } from "@octokit/rest";
 
 /* ================= CONFIG ================= */
 
-const BOT_TOKEN = "NOVO_BOT_TOKEN_AQUI";
+const BOT_TOKEN = "8231605933:AAEez15jvh0JWA94TflelS9RU-oelwJT-Rg";
 const GROUP_ID = -100609517172; // grupo correto
 const ADMIN_IDS = [565855757];
 
