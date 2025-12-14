@@ -1,107 +1,88 @@
-import fs from "fs";
-import fetch from "node-fetch";
+
 import TelegramBot from "node-telegram-bot-api";
+import fs from "fs";
+import { Octokit } from "@octokit/rest";
 
-/* ================= CONFIG ================= */
+const BOT_TOKEN = "8231605933:AAEez15jvh0JWA94TflelS9RU-oelwJT-Rg";
+const ADMIN_IDS = [565855757];
 
-const BOT_TOKEN = "SEU_TOKEN_AQUI";
-const GROUP_ID = -100609517172;
-
-const GITHUB_TOKEN = "SEU_GITHUB_TOKEN";
-const REPO = "SEU_USUARIO/queue-backend";
-const FILE_PATH = "fila.json";
-const BRANCH = "main";
-
-/* ================= BOT ================= */
+const octokit = new Octokit({ auth: "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" });
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-/* ================= GITHUB ================= */
+const OWNER = "killerkingMD";
+const REPO = "queue-backend";
+const PATH = "fila.json";
+const BRANCH = "main";
 
 async function loadFila() {
-  const res = await fetch(
-    `https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`,
-    { headers: { Authorization: `token ${GITHUB_TOKEN}` } }
-  );
-  const data = await res.json();
-  const content = Buffer.from(data.content, "base64").toString();
-  return { json: JSON.parse(content), sha: data.sha };
+  const { data } = await octokit.repos.getContent({
+    owner: OWNER,
+    repo: REPO,
+    path: PATH
+  });
+
+  const json = Buffer.from(data.content, "base64").toString();
+  return { fila: JSON.parse(json), sha: data.sha };
 }
 
-async function saveFila(json, sha, msg) {
-  await fetch(
-    `https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`,
-    {
-      method: "PUT",
-      headers: {
-        Authorization: `token ${GITHUB_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        message: msg,
-        content: Buffer.from(JSON.stringify(json, null, 2)).toString("base64"),
-        sha,
-        branch: BRANCH
-      })
-    }
-  );
+async function saveFila(fila, sha) {
+  await octokit.repos.createOrUpdateFileContents({
+    owner: OWNER,
+    repo: REPO,
+    path: PATH,
+    message: "update fila",
+    content: Buffer.from(JSON.stringify(fila, null, 2)).toString("base64"),
+    sha,
+    branch: BRANCH
+  });
 }
 
-/* ================= COMANDOS ================= */
+/* ===== COMANDOS ===== */
 
-bot.on("message", async (msg) => {
-  if (msg.chat.id !== GROUP_ID) return;
-  if (!msg.text) return;
-
-  const text = msg.text.trim();
+bot.onText(/\/pedido (.+)/, async (msg, match) => {
+  const nome = match[1];
   const user = msg.from.username || "anon";
-  const userId = msg.from.id;
 
-  // /pedido Nome do app
-  if (text.startsWith("/pedido")) {
-    const app = text.replace("/pedido", "").trim();
-    if (!app) return;
+  const { fila, sha } = await loadFila();
 
-    const { json, sha } = await loadFila();
+  fila.pedidos.push({
+    id: Date.now(),
+    app: nome,
+    user,
+    status: "NA_FILA"
+  });
 
-    if (json.pedidos.some(p => p.userId === userId && p.status !== "CONCLUIDO")) {
-      bot.sendMessage(GROUP_ID, "❌ Você já tem um pedido ativo.");
-      return;
-    }
+  await saveFila(fila, sha);
+  bot.sendMessage(msg.chat.id, `✅ Pedido registrado: ${nome}`);
+});
 
-    json.pedidos.push({
-      id: Date.now(),
-      app,
-      user,
-      userId,
-      status: "NA_FILA",
-      timestamp: Date.now()
-    });
+bot.onText(/\/atender/, async (msg) => {
+  if (!ADMIN_IDS.includes(msg.from.id)) return;
 
-    await saveFila(json, sha, `Novo pedido: ${app}`);
-    bot.sendMessage(
-      GROUP_ID,
-      `📥 Pedido registrado: *${app}*\n@${user}`,
-      { parse_mode: "Markdown" }
-    );
-  }
+  const { fila, sha } = await loadFila();
 
-  // /fila
-  if (text === "/fila") {
-    const { json } = await loadFila();
+  if (fila.pedidos.some(p => p.status === "EM_ATENDIMENTO")) return;
 
-    if (json.pedidos.length === 0) {
-      bot.sendMessage(GROUP_ID, "Fila vazia.");
-      return;
-    }
+  const next = fila.pedidos.find(p => p.status === "NA_FILA");
+  if (!next) return;
 
-    const fila = json.pedidos
-      .filter(p => p.status === "NA_FILA")
-      .map((p, i) => `${i + 1}. ${p.app} (@${p.user})`)
-      .join("\n");
+  next.status = "EM_ATENDIMENTO";
+  await saveFila(fila, sha);
 
-    bot.sendMessage(GROUP_ID, `📌 *Fila*\n\n${fila}`, {
-      parse_mode: "Markdown"
-    });
-  }
+  bot.sendMessage(msg.chat.id, `▶️ Em atendimento: ${next.app}`);
+});
+
+bot.onText(/\/finalizar/, async (msg) => {
+  if (!ADMIN_IDS.includes(msg.from.id)) return;
+
+  const { fila, sha } = await loadFila();
+
+  const atual = fila.pedidos.find(p => p.status === "EM_ATENDIMENTO");
+  if (!atual) return;
+
+  atual.status = "CONCLUIDO";
+  await saveFila(fila, sha);
+
+  bot.sendMessage(msg.chat.id, `✅ Concluído: ${atual.app}`);
 });
