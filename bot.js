@@ -8,7 +8,7 @@ const BOT_TOKEN = "NOVO_BOT_TOKEN_AQUI";
 const GROUP_ID = -100609517172; // grupo correto
 const ADMIN_IDS = [565855757];
 
-const GITHUB_TOKEN = "NOVO_GITHUB_TOKEN_AQUI";
+const GITHUB_TOKEN = "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";
 const OWNER = "killerkingMD";
 const REPO = "queue-backend";
 const FILE_PATH = "fila.json";
